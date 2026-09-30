@@ -1,0 +1,65 @@
+name: 안드로이드 테스트 빌드
+
+# main에 코드를 올리면 GitHub 서버가 안드로이드 앱(APK)을 만들어
+# '테스트 빌드' 릴리스에 올려둔다. 갤럭시에서 그 페이지를 열어 바로 설치하면 된다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-test
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: 패키지 설치
+        run: npm install
+
+      - name: 앱용 웹 파일 만들기 (폰트 내장)
+        run: npm run build:web
+
+      - name: 안드로이드 프로젝트 만들기
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: 세로 화면 고정
+        run: |
+          sed -i 's/<activity /<activity android:screenOrientation="portrait" /' android/app/src/main/AndroidManifest.xml
+          grep -q 'screenOrientation="portrait"' android/app/src/main/AndroidManifest.xml
+
+      - name: APK 빌드
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: 파일 이름 정리
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk charye-test.apk
+
+      - name: 테스트 빌드 릴리스에 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="갤럭시에서 이 페이지를 열고 charye-test.apk를 눌러 설치하세요. (커밋 ${GITHUB_SHA::7}, $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M') 빌드)"
+          if gh release view android-test >/dev/null 2>&1; then
+            gh release upload android-test charye-test.apk --clobber
+            gh release edit android-test --notes "$NOTES"
+          else
+            gh release create android-test charye-test.apk --prerelease --title "안드로이드 테스트 빌드" --notes "$NOTES"
+          fi

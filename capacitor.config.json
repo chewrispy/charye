@@ -1,0 +1,8 @@
+{
+  "appId": "kim.bomi.charye",
+  "appName": "차례상 타이쿤",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#e7b04f"
+  }
+}
