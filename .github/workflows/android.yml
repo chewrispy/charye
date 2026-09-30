@@ -42,7 +42,7 @@ jobs:
 
       - name: 세로 화면 고정
         run: |
-          sed -i 's/<activity /<activity android:screenOrientation="portrait" /' android/app/src/main/AndroidManifest.xml
+          sed -i -E 's/<activity([[:space:]]|$)/<activity android:screenOrientation="portrait"\1/' android/app/src/main/AndroidManifest.xml
           grep -q 'screenOrientation="portrait"' android/app/src/main/AndroidManifest.xml
 
       - name: APK 빌드
