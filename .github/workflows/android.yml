@@ -1,7 +1,9 @@
-name: 안드로이드 테스트 빌드
+name: 안드로이드 빌드
 
-# main에 코드를 올리면 GitHub 서버가 안드로이드 앱(APK)을 만들어
-# '테스트 빌드' 릴리스에 올려둔다. 갤럭시에서 그 페이지를 열어 바로 설치하면 된다.
+# main에 코드를 올리면 GitHub 서버가 두 가지를 만들어 '안드로이드 테스트 빌드' 릴리스에 올려둔다.
+#  - charye-test.apk : 갤럭시에 바로 설치해 보는 테스트용
+#  - charye-release.aab : 플레이 콘솔에 올리는 출시용 (저장소 시크릿 ANDROID_KEYSTORE_PASSWORD가 있을 때만)
+# 버전 번호(versionCode)는 빌드할 때마다 1씩 올라가서 플레이 콘솔에 매번 새 버전으로 올릴 수 있다.
 on:
   push:
     branches: [main]
@@ -45,21 +47,51 @@ jobs:
           sed -i -E 's/<activity([[:space:]]|$)/<activity android:screenOrientation="portrait"\1/' android/app/src/main/AndroidManifest.xml
           grep -q 'screenOrientation="portrait"' android/app/src/main/AndroidManifest.xml
 
-      - name: APK 빌드
+      - name: 버전 번호 넣기
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName \"[^\"]*\"/versionName \"$VERSION\"/" android/app/build.gradle
+          grep -E 'versionCode|versionName' android/app/build.gradle
+
+      - name: 테스트용 APK 빌드
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
-      - name: 파일 이름 정리
+      - name: 테스트용 파일 이름 정리
         run: cp android/app/build/outputs/apk/debug/app-debug.apk charye-test.apk
+
+      - name: 출시용 AAB 빌드 (서명)
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::notice::ANDROID_KEYSTORE_PASSWORD 시크릿이 없어서 출시용 빌드는 건너뜀"
+            exit 0
+          fi
+          npx cap build android \
+            --keystorepath "$GITHUB_WORKSPACE/release/upload.jks" \
+            --keystorepass "$KEYSTORE_PASSWORD" \
+            --keystorealias upload \
+            --keystorealiaspass "$KEYSTORE_PASSWORD" \
+            --androidreleasetype AAB
+          AAB=$(find android/app/build/outputs/bundle -name '*.aab' | grep -i signed | head -1)
+          [ -n "$AAB" ] || AAB=$(find android/app/build/outputs/bundle -name '*.aab' | head -1)
+          echo "만든 파일: $AAB"
+          jarsigner -verify "$AAB" | tail -1
+          cp "$AAB" charye-release.aab
 
       - name: 테스트 빌드 릴리스에 올리기
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          NOTES="갤럭시에서 이 페이지를 열고 charye-test.apk를 눌러 설치하세요. (커밋 ${GITHUB_SHA::7}, $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M') 빌드)"
+          FILES="charye-test.apk"
+          [ -f charye-release.aab ] && FILES="$FILES charye-release.aab"
+          NOTES="- 갤럭시에서 바로 설치: charye-test.apk
+          - 플레이 콘솔에 올리기: charye-release.aab
+          버전 코드 ${{ github.run_number }} · 커밋 ${GITHUB_SHA::7} · $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M') 빌드"
           if gh release view android-test >/dev/null 2>&1; then
-            gh release upload android-test charye-test.apk --clobber
+            gh release upload android-test $FILES --clobber
             gh release edit android-test --notes "$NOTES"
           else
-            gh release create android-test charye-test.apk --prerelease --title "안드로이드 테스트 빌드" --notes "$NOTES"
+            gh release create android-test $FILES --prerelease --title "안드로이드 테스트 빌드" --notes "$NOTES"
           fi
