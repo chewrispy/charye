@@ -76,8 +76,8 @@ jobs:
             -signedjar charye-release.aab \
             android/app/build/outputs/bundle/release/app-release.aab upload
           jarsigner -verify -verbose charye-release.aab > verify.txt 2>&1 || true
-          grep -E 'Digest algorithm|Signature algorithm|jar verified|unsigned|disabled' verify.txt | sort -u
-          grep -q 'jar verified' verify.txt && ! grep -qi 'disabled' verify.txt
+          grep -E 'Digest algorithm|Signature algorithm|jar verified|weak algorithm|\(disabled\)' verify.txt | sort -u
+          grep -q 'jar verified' verify.txt && ! grep -qE 'weak algorithm|\(disabled\)' verify.txt
 
       - name: 테스트 빌드 릴리스에 올리기
         env:
