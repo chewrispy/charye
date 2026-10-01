@@ -68,17 +68,16 @@ jobs:
             echo "::notice::ANDROID_KEYSTORE_PASSWORD 시크릿이 없어서 출시용 빌드는 건너뜀"
             exit 0
           fi
-          npx cap build android \
-            --keystorepath "$GITHUB_WORKSPACE/release/upload.jks" \
-            --keystorepass "$KEYSTORE_PASSWORD" \
-            --keystorealias upload \
-            --keystorealiaspass "$KEYSTORE_PASSWORD" \
-            --androidreleasetype AAB
-          AAB=$(find android/app/build/outputs/bundle -name '*.aab' | grep -i signed | head -1)
-          [ -n "$AAB" ] || AAB=$(find android/app/build/outputs/bundle -name '*.aab' | head -1)
-          echo "만든 파일: $AAB"
-          jarsigner -verify "$AAB" | tail -1
-          cp "$AAB" charye-release.aab
+          (cd android && ./gradlew bundleRelease --no-daemon)
+          # SHA-256으로 직접 서명 (cap build는 SHA1을 써서 쓰지 않음)
+          jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
+            -keystore "$GITHUB_WORKSPACE/release/upload.jks" \
+            -storepass "$KEYSTORE_PASSWORD" -keypass "$KEYSTORE_PASSWORD" \
+            -signedjar charye-release.aab \
+            android/app/build/outputs/bundle/release/app-release.aab upload
+          jarsigner -verify -verbose charye-release.aab > verify.txt 2>&1 || true
+          grep -E 'Digest algorithm|Signature algorithm|jar verified|unsigned|disabled' verify.txt | sort -u
+          grep -q 'jar verified' verify.txt && ! grep -qi 'disabled' verify.txt
 
       - name: 테스트 빌드 릴리스에 올리기
         env:
